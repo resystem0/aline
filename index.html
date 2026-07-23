@@ -1,0 +1,787 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Decision Tree Builder</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap');
+
+  :root{
+    --canvas-bg:#1c1f26;
+    --titlebar-bg:#20242c;
+    --titlebar-text:#f4d68a;
+    --panel-bg:#20242c;
+    --panel-border:#333947;
+    --node-bg:#2f3542;
+    --node-border:#e8b84b;
+    --node-text:#e7e9ee;
+    --line-color:#5fb4a2;
+    --accent:#e8b84b;
+    --accent-soft:#3a3222;
+    --muted:#8a8f9c;
+    --danger:#d9705f;
+    --node-radius:10;
+    --font-ui:'Inter',sans-serif;
+    --font-mono:'JetBrains Mono',monospace;
+  }
+
+  *{box-sizing:border-box;}
+  html,body{height:100%;margin:0;}
+  body{
+    font-family:var(--font-ui);
+    background:#111318;
+    color:var(--node-text);
+    display:flex;
+    flex-direction:column;
+    height:100vh;
+    overflow:hidden;
+  }
+
+  /* ---------- Title bar ---------- */
+  #titlebar{
+    background:var(--titlebar-bg);
+    border-bottom:1px solid var(--panel-border);
+    display:flex;
+    align-items:center;
+    gap:14px;
+    padding:10px 16px;
+    flex:0 0 auto;
+  }
+  #titleInput{
+    background:transparent;
+    border:none;
+    outline:none;
+    color:var(--titlebar-text);
+    font-family:var(--font-ui);
+    font-weight:700;
+    font-size:19px;
+    letter-spacing:.2px;
+    padding:6px 10px;
+    border-radius:6px;
+    flex:0 1 auto;
+    min-width:120px;
+    max-width:420px;
+  }
+  #titleInput:hover, #titleInput:focus{ background:rgba(255,255,255,.05); }
+
+  .tb-sep{ width:1px; height:24px; background:var(--panel-border); }
+
+  .tb-meta{
+    font-family:var(--font-mono);
+    font-size:11px;
+    color:var(--muted);
+    letter-spacing:.4px;
+    text-transform:uppercase;
+  }
+
+  .spacer{flex:1;}
+
+  .btn{
+    display:inline-flex;
+    align-items:center;
+    gap:6px;
+    background:#2a2f3a;
+    border:1px solid var(--panel-border);
+    color:var(--node-text);
+    font-family:var(--font-ui);
+    font-size:13px;
+    font-weight:500;
+    padding:8px 13px;
+    border-radius:7px;
+    cursor:pointer;
+    transition:background .15s, border-color .15s, transform .05s;
+    white-space:nowrap;
+  }
+  .btn:hover{ background:#333a47; border-color:#454d5e; }
+  .btn:active{ transform:scale(.97); }
+  .btn.primary{ background:var(--accent); border-color:var(--accent); color:#20242c; font-weight:700; }
+  .btn.primary:hover{ filter:brightness(1.08); }
+  .btn.ghost{ background:transparent; }
+  .btn.small{ padding:5px 9px; font-size:12px; border-radius:6px; }
+  .btn.danger{ color:var(--danger); border-color:#4a3530; }
+  .btn.danger:hover{ background:#3a2622; }
+  .btn:disabled{ opacity:.35; cursor:not-allowed; }
+
+  /* ---------- Layout ---------- */
+  #main{ flex:1; display:flex; min-height:0; }
+
+  #canvasWrap{
+    flex:1;
+    background:var(--canvas-bg);
+    overflow:auto;
+    position:relative;
+    background-image:radial-gradient(circle, #ffffff10 1px, transparent 1px);
+    background-size:26px 26px;
+  }
+  #treeSvg{ display:block; }
+
+  .row-band{ cursor:pointer; }
+  .row-band rect{ transition:fill .15s; }
+  .row-band:hover rect{ fill:#ffffff08; }
+
+  .node-group{ cursor:pointer; }
+  .node-fo div{
+    width:100%; height:100%;
+    display:flex; align-items:center; justify-content:center;
+    text-align:center;
+    font-family:var(--font-ui);
+    font-size:13px;
+    font-weight:600;
+    color:var(--node-text);
+    padding:4px 10px;
+    line-height:1.25;
+    overflow:hidden;
+  }
+  .node-idx{
+    font-family:var(--font-mono);
+    font-size:9px;
+    fill:var(--muted);
+    letter-spacing:.5px;
+  }
+
+  .layer-tag{
+    font-family:var(--font-mono);
+    font-size:10px;
+    letter-spacing:1px;
+    fill:var(--muted);
+  }
+
+  /* ---------- Editor panel ---------- */
+  #editor{
+    width:340px;
+    flex:0 0 340px;
+    background:var(--panel-bg);
+    border-left:1px solid var(--panel-border);
+    display:flex;
+    flex-direction:column;
+    min-height:0;
+  }
+  .editor-scroll{ overflow-y:auto; flex:1; padding:16px; }
+
+  .layer-nav{
+    display:flex;
+    align-items:center;
+    gap:8px;
+    padding:14px 16px;
+    border-bottom:1px solid var(--panel-border);
+    flex:0 0 auto;
+  }
+  .layer-nav .navlabel{
+    flex:1;
+    text-align:center;
+    font-family:var(--font-mono);
+    font-size:12px;
+    color:var(--accent);
+    letter-spacing:.5px;
+  }
+  .layer-nav .navsub{
+    display:block;
+    color:var(--muted);
+    font-size:10px;
+    margin-top:2px;
+  }
+
+  .section-label{
+    font-family:var(--font-mono);
+    font-size:10.5px;
+    text-transform:uppercase;
+    letter-spacing:1px;
+    color:var(--muted);
+    margin:18px 0 8px;
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+  }
+  .section-label:first-child{ margin-top:0; }
+
+  .node-row{
+    background:#262b35;
+    border:1px solid var(--panel-border);
+    border-radius:9px;
+    padding:10px;
+    margin-bottom:8px;
+  }
+  .node-row-top{
+    display:flex;
+    align-items:center;
+    gap:8px;
+    margin-bottom:6px;
+  }
+  .node-row-top .tag{
+    font-family:var(--font-mono);
+    font-size:10px;
+    color:var(--accent);
+    background:var(--accent-soft);
+    padding:2px 6px;
+    border-radius:4px;
+    flex:0 0 auto;
+  }
+  .node-row input[type=text]{
+    flex:1;
+    background:#1b1f27;
+    border:1px solid var(--panel-border);
+    color:var(--node-text);
+    font-family:var(--font-ui);
+    font-size:13px;
+    padding:7px 9px;
+    border-radius:6px;
+    outline:none;
+    min-width:0;
+  }
+  .node-row input[type=text]:focus{ border-color:var(--accent); }
+
+  .conn-block{ margin-top:8px; }
+  .conn-title{
+    font-family:var(--font-mono);
+    font-size:9.5px;
+    color:var(--muted);
+    letter-spacing:.4px;
+    margin-bottom:5px;
+    text-transform:uppercase;
+  }
+  .conn-list{ display:flex; flex-wrap:wrap; gap:5px; }
+  .conn-chip{
+    display:flex;
+    align-items:center;
+    gap:5px;
+    background:#1b1f27;
+    border:1px solid var(--panel-border);
+    padding:4px 8px;
+    border-radius:14px;
+    font-size:11.5px;
+    cursor:pointer;
+    user-select:none;
+    color:var(--muted);
+    transition:all .12s;
+  }
+  .conn-chip.active{
+    background:#20372f;
+    border-color:var(--line-color);
+    color:#bdeee0;
+  }
+  .conn-chip input{ display:none; }
+
+  .add-node-btn{
+    width:100%;
+    justify-content:center;
+    margin-top:2px;
+    border-style:dashed;
+  }
+
+  .editor-footer{
+    flex:0 0 auto;
+    padding:12px 16px;
+    border-top:1px solid var(--panel-border);
+    display:flex;
+    gap:8px;
+  }
+  .editor-footer .btn{ flex:1; justify-content:center; }
+
+  /* ---------- Settings popover ---------- */
+  #settingsPanel{
+    position:fixed;
+    top:58px;
+    right:16px;
+    width:280px;
+    background:#20242c;
+    border:1px solid var(--panel-border);
+    border-radius:12px;
+    box-shadow:0 12px 40px rgba(0,0,0,.5);
+    padding:16px;
+    z-index:50;
+    display:none;
+  }
+  #settingsPanel.open{ display:block; }
+  #settingsPanel h4{
+    margin:0 0 12px;
+    font-size:12px;
+    text-transform:uppercase;
+    letter-spacing:1px;
+    color:var(--muted);
+    font-family:var(--font-mono);
+  }
+  .setting-row{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    margin-bottom:10px;
+    gap:10px;
+  }
+  .setting-row label{ font-size:12.5px; color:var(--node-text); }
+  .setting-row input[type=color]{
+    width:34px; height:26px; border:none; border-radius:6px; background:none; cursor:pointer; padding:0;
+  }
+  .setting-row input[type=range]{ width:110px; }
+  #settingsPanel .btn{ width:100%; justify-content:center; margin-top:6px; }
+
+  ::-webkit-scrollbar{ width:10px; height:10px; }
+  ::-webkit-scrollbar-track{ background:transparent; }
+  ::-webkit-scrollbar-thumb{ background:#3a4152; border-radius:6px; }
+</style>
+</head>
+<body>
+
+<header id="titlebar">
+  <input id="titleInput" type="text" value="Untitled Decision Tree" spellcheck="false">
+  <div class="tb-sep"></div>
+  <span class="tb-meta" id="treeMeta">3 rows</span>
+  <div class="spacer"></div>
+  <button class="btn ghost small" id="addLayerBtn">+ Add row</button>
+  <button class="btn ghost small danger" id="delLayerBtn">− Remove last row</button>
+  <div class="tb-sep"></div>
+  <button class="btn" id="settingsBtn">🎨 Style</button>
+  <button class="btn primary" id="exportBtn">⬇ Export</button>
+</header>
+
+<div id="main">
+  <div id="canvasWrap">
+    <svg id="treeSvg" xmlns="http://www.w3.org/2000/svg"></svg>
+  </div>
+
+  <aside id="editor">
+    <div class="layer-nav">
+      <button class="btn small" id="prevLayer">↑ Up</button>
+      <div class="navlabel" id="layerLabel">Row 1 of 3
+        <span class="navsub" id="layerSub">1 node</span>
+      </div>
+      <button class="btn small" id="nextLayer">Down ↓</button>
+    </div>
+    <div class="editor-scroll">
+      <div class="section-label">Edit this row</div>
+      <div id="nodeList"></div>
+      <button class="btn add-node-btn" id="addNodeBtn">+ Add node to this row</button>
+    </div>
+  </aside>
+</div>
+
+<div id="settingsPanel">
+  <h4>Title bar</h4>
+  <div class="setting-row"><label>Bar background</label><input type="color" id="c-titlebar-bg"></div>
+  <div class="setting-row"><label>Title text</label><input type="color" id="c-titlebar-text"></div>
+  <h4 style="margin-top:16px;">Canvas</h4>
+  <div class="setting-row"><label>Background</label><input type="color" id="c-canvas-bg"></div>
+  <div class="setting-row"><label>Connection lines</label><input type="color" id="c-line-color"></div>
+  <h4 style="margin-top:16px;">Node style</h4>
+  <div class="setting-row"><label>Fill</label><input type="color" id="c-node-bg"></div>
+  <div class="setting-row"><label>Border / accent</label><input type="color" id="c-node-border"></div>
+  <div class="setting-row"><label>Text</label><input type="color" id="c-node-text"></div>
+  <div class="setting-row"><label>Corner radius</label><input type="range" id="c-node-radius" min="0" max="30" step="1"></div>
+  <button class="btn" id="closeSettings">Done</button>
+</div>
+
+<script>
+(function(){
+  "use strict";
+
+  /* ============ STATE ============ */
+  let idCounter = 0;
+  const newId = () => 'n' + (idCounter++);
+
+  const state = {
+    title: "Untitled Decision Tree",
+    colors: {
+      titlebarBg: '#20242c',
+      titlebarText: '#f4d68a',
+      canvasBg: '#1c1f26',
+      lineColor: '#5fb4a2',
+      nodeBg: '#2f3542',
+      nodeBorder: '#e8b84b',
+      nodeText: '#e7e9ee',
+      nodeRadius: 10
+    },
+    layers: []
+  };
+
+  function seedTree(){
+    const a = newId(), b = newId(), c = newId(), d = newId(), e = newId();
+    state.layers = [
+      [ {id:a, label:'Start: new feature request', children:[b,c]} ],
+      [ {id:b, label:'Is it a quick fix?', children:[d]},
+        {id:c, label:'Needs design review?', children:[e]} ],
+      [ {id:d, label:'Ship it this sprint', children:[]},
+        {id:e, label:'Add to roadmap', children:[]} ]
+    ];
+  }
+  seedTree();
+
+  let activeLayer = 0;
+
+  /* ============ COLOR / STYLE SYNC ============ */
+  const root = document.documentElement.style;
+  function applyColors(){
+    root.setProperty('--titlebar-bg', state.colors.titlebarBg);
+    root.setProperty('--titlebar-text', state.colors.titlebarText);
+    root.setProperty('--canvas-bg', state.colors.canvasBg);
+    root.setProperty('--line-color', state.colors.lineColor);
+    root.setProperty('--node-bg', state.colors.nodeBg);
+    root.setProperty('--node-border', state.colors.nodeBorder);
+    root.setProperty('--node-text', state.colors.nodeText);
+    root.setProperty('--accent', state.colors.nodeBorder);
+  }
+
+  function initSettingsInputs(){
+    document.getElementById('c-titlebar-bg').value = state.colors.titlebarBg;
+    document.getElementById('c-titlebar-text').value = state.colors.titlebarText;
+    document.getElementById('c-canvas-bg').value = state.colors.canvasBg;
+    document.getElementById('c-line-color').value = state.colors.lineColor;
+    document.getElementById('c-node-bg').value = state.colors.nodeBg;
+    document.getElementById('c-node-border').value = state.colors.nodeBorder;
+    document.getElementById('c-node-text').value = state.colors.nodeText;
+    document.getElementById('c-node-radius').value = state.colors.nodeRadius;
+  }
+
+  const settingsMap = {
+    'c-titlebar-bg':'titlebarBg', 'c-titlebar-text':'titlebarText',
+    'c-canvas-bg':'canvasBg', 'c-line-color':'lineColor',
+    'c-node-bg':'nodeBg', 'c-node-border':'nodeBorder', 'c-node-text':'nodeText'
+  };
+  Object.keys(settingsMap).forEach(inputId=>{
+    document.getElementById(inputId).addEventListener('input', e=>{
+      state.colors[settingsMap[inputId]] = e.target.value;
+      applyColors();
+      renderSvg();
+    });
+  });
+  document.getElementById('c-node-radius').addEventListener('input', e=>{
+    state.colors.nodeRadius = +e.target.value;
+    renderSvg();
+  });
+
+  document.getElementById('settingsBtn').addEventListener('click', ()=>{
+    document.getElementById('settingsPanel').classList.toggle('open');
+  });
+  document.getElementById('closeSettings').addEventListener('click', ()=>{
+    document.getElementById('settingsPanel').classList.remove('open');
+  });
+
+  /* ============ TITLE ============ */
+  const titleInput = document.getElementById('titleInput');
+  titleInput.value = state.title;
+  titleInput.addEventListener('input', e=>{ state.title = e.target.value || 'Untitled Decision Tree'; });
+
+  /* ============ LAYER STRUCTURE OPS ============ */
+  document.getElementById('addLayerBtn').addEventListener('click', ()=>{
+    state.layers.push([{id:newId(), label:'New node', children:[]}]);
+    activeLayer = state.layers.length - 1;
+    renderAll();
+  });
+  document.getElementById('delLayerBtn').addEventListener('click', ()=>{
+    if(state.layers.length <= 1) return;
+    if(!confirm('Remove the last row of the tree? This cannot be undone.')) return;
+    const removedLayer = state.layers.pop();
+    const removedIds = new Set(removedLayer.map(n=>n.id));
+    if(state.layers.length){
+      state.layers[state.layers.length-1].forEach(n=>{
+        n.children = n.children.filter(c=>!removedIds.has(c));
+      });
+    }
+    if(activeLayer >= state.layers.length) activeLayer = state.layers.length - 1;
+    renderAll();
+  });
+
+  /* ============ ROW (NODE) OPS ============ */
+  function addNode(layerIndex){
+    state.layers[layerIndex].push({id:newId(), label:'New node', children:[]});
+    renderAll();
+  }
+  function deleteNode(layerIndex, nodeId){
+    const layer = state.layers[layerIndex];
+    if(layer.length <= 1) return;
+    state.layers[layerIndex] = layer.filter(n=>n.id !== nodeId);
+    if(layerIndex > 0){
+      state.layers[layerIndex-1].forEach(n=>{
+        n.children = n.children.filter(c=>c!==nodeId);
+      });
+    }
+    renderAll();
+  }
+  function updateLabel(layerIndex, nodeId, text){
+    const node = state.layers[layerIndex].find(n=>n.id===nodeId);
+    if(node) node.label = text;
+    renderSvg();
+  }
+  function toggleConnection(layerIndex, nodeId, childId, checked){
+    const node = state.layers[layerIndex].find(n=>n.id===nodeId);
+    if(!node) return;
+    if(checked){
+      if(!node.children.includes(childId)) node.children.push(childId);
+    } else {
+      node.children = node.children.filter(c=>c!==childId);
+    }
+    renderSvg();
+  }
+
+  /* ============ NAVIGATION ============ */
+  document.getElementById('prevLayer').addEventListener('click', ()=>{
+    if(activeLayer > 0){ activeLayer--; renderAll(); }
+  });
+  document.getElementById('nextLayer').addEventListener('click', ()=>{
+    if(activeLayer < state.layers.length - 1){ activeLayer++; renderAll(); }
+  });
+  document.getElementById('addNodeBtn').addEventListener('click', ()=> addNode(activeLayer));
+
+  /* ============ RENDER: EDITOR PANEL ============ */
+  function renderEditor(){
+    const layers = state.layers;
+    const layer = layers[activeLayer];
+
+    document.getElementById('layerLabel').innerHTML =
+      `Row ${activeLayer+1} of ${layers.length}<span class="navsub">${layer.length} node${layer.length!==1?'s':''}</span>`;
+    document.getElementById('prevLayer').disabled = activeLayer === 0;
+    document.getElementById('nextLayer').disabled = activeLayer === layers.length - 1;
+    document.getElementById('treeMeta').textContent = `${layers.length} row${layers.length!==1?'s':''}`;
+    document.getElementById('delLayerBtn').disabled = layers.length <= 1;
+
+    const list = document.getElementById('nodeList');
+    list.innerHTML = '';
+    const hasNextLayer = activeLayer < layers.length - 1;
+    const nextLayerNodes = hasNextLayer ? layers[activeLayer+1] : [];
+
+    layer.forEach((node, idx)=>{
+      const row = document.createElement('div');
+      row.className = 'node-row';
+
+      const top = document.createElement('div');
+      top.className = 'node-row-top';
+
+      const tag = document.createElement('span');
+      tag.className = 'tag';
+      tag.textContent = String(idx+1).padStart(2,'0');
+
+      const input = document.createElement('input');
+      input.type = 'text';
+      input.value = node.label;
+      input.placeholder = 'Node label';
+      input.addEventListener('input', e=> updateLabel(activeLayer, node.id, e.target.value));
+
+      const delBtn = document.createElement('button');
+      delBtn.className = 'btn small danger';
+      delBtn.textContent = '✕';
+      delBtn.title = 'Delete node';
+      delBtn.disabled = layer.length <= 1;
+      delBtn.addEventListener('click', ()=> deleteNode(activeLayer, node.id));
+
+      top.appendChild(tag);
+      top.appendChild(input);
+      top.appendChild(delBtn);
+      row.appendChild(top);
+
+      if(hasNextLayer){
+        const connBlock = document.createElement('div');
+        connBlock.className = 'conn-block';
+        const connTitle = document.createElement('div');
+        connTitle.className = 'conn-title';
+        connTitle.textContent = 'Connects to (next row)';
+        connBlock.appendChild(connTitle);
+
+        const connList = document.createElement('div');
+        connList.className = 'conn-list';
+
+        nextLayerNodes.forEach((child, cIdx)=>{
+          const chip = document.createElement('label');
+          chip.className = 'conn-chip' + (node.children.includes(child.id) ? ' active' : '');
+          const cb = document.createElement('input');
+          cb.type = 'checkbox';
+          cb.checked = node.children.includes(child.id);
+          cb.addEventListener('change', e=>{
+            toggleConnection(activeLayer, node.id, child.id, e.target.checked);
+            chip.classList.toggle('active', e.target.checked);
+          });
+          const lbl = document.createElement('span');
+          lbl.textContent = `${cIdx+1}. ${(child.label||'Untitled').slice(0,18)}`;
+          chip.appendChild(cb);
+          chip.appendChild(lbl);
+          connList.appendChild(chip);
+        });
+
+        connBlock.appendChild(connList);
+        row.appendChild(connBlock);
+      }
+
+      list.appendChild(row);
+    });
+  }
+
+  /* ============ RENDER: SVG TREE ============ */
+  const NODE_W = 176, NODE_H = 64, ROW_H = 160, TOP_PAD = 50, BOTTOM_PAD = 50;
+  const SIDE_PAD = 60;
+
+  function layoutPositions(){
+    const layers = state.layers;
+    const maxCount = Math.max(...layers.map(l=>l.length), 1);
+    const rowWidth = Math.max(maxCount * 210, 620);
+    const svgWidth = rowWidth + SIDE_PAD*2;
+    const svgHeight = TOP_PAD + layers.length*ROW_H + BOTTOM_PAD;
+
+    const posById = {};
+    layers.forEach((layer, li)=>{
+      const spacing = rowWidth / layer.length;
+      layer.forEach((node, ni)=>{
+        const cx = SIDE_PAD + spacing*(ni+0.5);
+        const cy = TOP_PAD + li*ROW_H + NODE_H/2;
+        posById[node.id] = {cx, cy, li, ni};
+      });
+    });
+    return {svgWidth, svgHeight, rowWidth, posById};
+  }
+
+  function esc(str){
+    return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  }
+
+  function buildSvgMarkup(){
+    const {svgWidth, svgHeight, rowWidth, posById} = layoutPositions();
+    const layers = state.layers;
+    const r = state.colors.nodeRadius;
+
+    let defs = `
+      <defs>
+        <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M0,0 L10,5 L0,10 z" fill="var(--line-color)"></path>
+        </marker>
+      </defs>`;
+
+    let bands = '';
+    layers.forEach((layer, li)=>{
+      const y = TOP_PAD + li*ROW_H - 14;
+      const isActive = li === activeLayer;
+      bands += `
+        <g class="row-band" data-layer="${li}">
+          <rect x="0" y="${y}" width="${svgWidth}" height="${ROW_H - 24}"
+            fill="${isActive ? 'var(--accent)' : 'transparent'}"
+            fill-opacity="${isActive ? 0.06 : 0}"></rect>
+          <text class="layer-tag" x="${SIDE_PAD - 40}" y="${y + (ROW_H-24)/2}" dominant-baseline="middle">R${li+1}</text>
+        </g>`;
+    });
+
+    let edges = '';
+    layers.forEach((layer)=>{
+      layer.forEach(node=>{
+        const from = posById[node.id];
+        node.children.forEach(childId=>{
+          const to = posById[childId];
+          if(!from || !to) return;
+          const x1 = from.cx, y1 = from.cy + NODE_H/2;
+          const x2 = to.cx, y2 = to.cy - NODE_H/2;
+          const midY = (y1+y2)/2;
+          edges += `<path d="M ${x1},${y1} C ${x1},${midY} ${x2},${midY} ${x2},${y2}"
+            fill="none" stroke="var(--line-color)" stroke-width="2" marker-end="url(#arrow)" opacity="0.85"></path>`;
+        });
+      });
+    });
+
+    let nodes = '';
+    layers.forEach((layer, li)=>{
+      const isActive = li === activeLayer;
+      layer.forEach((node, ni)=>{
+        const pos = posById[node.id];
+        const x = pos.cx - NODE_W/2, y = pos.cy - NODE_H/2;
+        nodes += `
+          <g class="node-group" data-layer="${li}" data-node="${node.id}">
+            <rect x="${x}" y="${y}" width="${NODE_W}" height="${NODE_H}" rx="${r}" ry="${r}"
+              fill="var(--node-bg)" stroke="var(--node-border)"
+              stroke-width="${isActive ? 3 : 1.5}"
+              stroke-dasharray="${isActive ? '0' : '0'}"
+              opacity="${isActive ? 1 : 0.82}"></rect>
+            <text class="node-idx" x="${x+10}" y="${y+14}">${String(ni+1).padStart(2,'0')}</text>
+            <foreignObject class="node-fo" x="${x}" y="${y+6}" width="${NODE_W}" height="${NODE_H-8}">
+              <div xmlns="http://www.w3.org/1999/xhtml">${esc(node.label||'Untitled')}</div>
+            </foreignObject>
+          </g>`;
+      });
+    });
+
+    return {svgWidth, svgHeight, markup: defs + bands + edges + nodes};
+  }
+
+  function renderSvg(){
+    const svg = document.getElementById('treeSvg');
+    const {svgWidth, svgHeight, markup} = buildSvgMarkup();
+    svg.setAttribute('width', svgWidth);
+    svg.setAttribute('height', svgHeight);
+    svg.setAttribute('viewBox', `0 0 ${svgWidth} ${svgHeight}`);
+    svg.innerHTML = markup;
+
+    svg.querySelectorAll('.row-band').forEach(el=>{
+      el.addEventListener('click', ()=>{
+        activeLayer = +el.getAttribute('data-layer');
+        renderAll();
+      });
+    });
+    svg.querySelectorAll('.node-group').forEach(el=>{
+      el.addEventListener('click', (e)=>{
+        e.stopPropagation();
+        activeLayer = +el.getAttribute('data-layer');
+        renderAll();
+      });
+    });
+  }
+
+  function renderAll(){
+    renderEditor();
+    renderSvg();
+  }
+
+  /* ============ EXPORT ============ */
+  document.getElementById('exportBtn').addEventListener('click', ()=>{
+    const {svgWidth, svgHeight, markup} = buildSvgMarkup();
+
+    // resolve CSS variables into literal colors for a fully standalone file
+    const c = state.colors;
+    const resolvedMarkup = markup
+      .replaceAll('var(--line-color)', c.lineColor)
+      .replaceAll('var(--node-bg)', c.nodeBg)
+      .replaceAll('var(--node-border)', c.nodeBorder)
+      .replaceAll('var(--accent)', c.nodeBorder);
+
+    const safeTitle = esc(state.title);
+    const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>${safeTitle}</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=JetBrains+Mono:wght@400;600&display=swap');
+  *{box-sizing:border-box;}
+  body{margin:0;background:#111318;font-family:'Inter',sans-serif;color:${c.nodeText};}
+  header{background:${c.titlebarBg};color:${c.titlebarText};padding:16px 22px;font-size:20px;font-weight:700;border-bottom:1px solid #333947;}
+  .wrap{background:${c.canvasBg};padding:30px;overflow:auto;}
+  .node-fo div{width:100%;height:100%;display:flex;align-items:center;justify-content:center;text-align:center;font-family:'Inter',sans-serif;font-size:13px;font-weight:600;color:${c.nodeText};padding:4px 10px;line-height:1.25;}
+  .node-idx{font-family:'JetBrains Mono',monospace;font-size:9px;fill:#8a8f9c;}
+  .layer-tag{font-family:'JetBrains Mono',monospace;font-size:10px;fill:#8a8f9c;letter-spacing:1px;}
+  footer{padding:10px 22px;font-family:'JetBrains Mono',monospace;font-size:10.5px;color:#6b7280;background:${c.titlebarBg};border-top:1px solid #333947;}
+</style>
+</head>
+<body>
+  <header>${safeTitle}</header>
+  <div class="wrap">
+    <svg width="${svgWidth}" height="${svgHeight}" viewBox="0 0 ${svgWidth} ${svgHeight}" xmlns="http://www.w3.org/2000/svg">
+      ${resolvedMarkup}
+    </svg>
+  </div>
+  <footer>Exported decision tree · ${state.layers.length} row${state.layers.length!==1?'s':''} · static snapshot</footer>
+</body>
+</html>`;
+
+    const blob = new Blob([html], {type:'text/html'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    const filename = (state.title || 'decision-tree').trim().replace(/[^a-z0-9\-_]+/gi,'-').toLowerCase() || 'decision-tree';
+    a.href = url;
+    a.download = filename + '.html';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  });
+
+  /* ============ INIT ============ */
+  applyColors();
+  initSettingsInputs();
+  renderAll();
+
+})();
+</script>
+</body>
+</html>
