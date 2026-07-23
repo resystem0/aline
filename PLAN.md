@@ -13,21 +13,20 @@
 - Output is SVG — good for embedding/export, but no interactive "play through the tree" mode yet (useful for support agents actually using a finished tree, not just building one).
 
 ## MVP definition (what's missing to ship v1)
-1. **Persistence** — save/load trees (localStorage first, then account-based storage). Losing work on refresh is the single biggest gap in the current prototype.
-2. **Export formats** — SVG already works; add PNG export (canvas render of the SVG) and a JSON export/import so trees are portable and re-editable.
-3. **"Play mode"** — a read-only interactive viewer where an end user (support agent, new hire) clicks through the tree answering yes/no or multi-choice at each node, rather than seeing the whole tree at once. This is what turns it from an authoring tool into something the *audience* of the tree actually uses day to day — likely the highest-value addition.
-4. **Multi-choice branches** — check whether `toggleConnection` currently supports more than binary yes/no; troubleshooting/qualification trees often need 3+ branches per node.
+1. ~~**Persistence**~~ — **done.** localStorage-backed multi-tree save/load/rename/delete, autosaved 400ms after each edit (see `📁 Trees` panel and `saveStatus` indicator in `index.html`).
+2. **Export formats** — SVG/HTML export already worked; ~~JSON export/import~~ **done** (round-trips through the same tree schema, imports as a new saved tree). PNG export still not implemented.
+3. ~~**"Play mode"**~~ — **done.** Full-screen click-through viewer (`▶ Play`): one node at a time, choices rendered as buttons from `children`, breadcrumb of the path taken, Back/Restart, auto-enters when there's a single root.
+4. **Multi-choice branches** — `toggleConnection` already supported N-way branching (checkbox per connection, not radio), so this was already true going in; no change needed.
 
 ## Phased roadmap
-**Phase 1 — Make the prototype durable (1 week)**
-- Add localStorage persistence (list of saved trees, load/rename/delete).
-- Add JSON export/import for portability.
-- Fix/verify multi-branch support per node (not just binary).
+**Phase 1 — Make the prototype durable — done**
+- localStorage persistence: multiple named trees, load/rename/delete via the Trees panel.
+- JSON export/import for portability (import creates a new tree rather than overwriting the open one).
+- Confirmed multi-branch support per node was already in place.
 
-**Phase 2 — Add "Play mode" (1-2 weeks)**
-- New view mode: render one node at a time with its choices as buttons; track path taken; option to show a summary/breadcrumb of the path at the end.
-- This is the feature that makes the tool useful to non-builders (the people *following* the tree, not just the person who made it) — critical for the support-script and troubleshooting use cases.
-- Shareable read-only link per tree (needs a lightweight backend — Supabase: `trees(id, owner_id, data jsonb, is_public)`).
+**Phase 2 — Add "Play mode" — done (local only)**
+- Play mode implemented: one node at a time, choices as buttons, path breadcrumb, Back/Restart.
+- **Still open:** a shareable *read-only link* per tree (needs a lightweight backend — Supabase: `trees(id, owner_id, data jsonb, is_public)`) so Play mode can be sent to someone who isn't opening this editor themselves. This is the next real gap — everything above runs only inside the local browser tab.
 
 **Phase 3 — Embeddability + monetization (1 week)**
 - Embed widget: `<iframe>` or small JS snippet to drop a published tree's Play mode into any website/help center.
@@ -41,4 +40,4 @@
 - Without Play mode this is just a diagramming tool competing with much bigger general-purpose players — Phase 2 is not optional, it's the actual product wedge.
 
 ## Immediate next step
-Confirm current branch-count limits in `toggleConnection`/`addNode` (binary vs. N-way), then build Play mode against the existing data model before investing in persistence/backend infrastructure — Play mode is the differentiator and should be de-risked first.
+Persistence, JSON export/import, and local Play mode are done. The next real gap is the shareable read-only link from Phase 2 — without it, Play mode only helps the person who built the tree, not the audience it's meant for (a support agent or new hire who doesn't have this editor open). That needs a minimal backend (Supabase `trees` table + a static Play-mode-only route), which is also the prerequisite for Phase 3's embed widget.

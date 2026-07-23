@@ -318,6 +318,81 @@
   ::-webkit-scrollbar{ width:10px; height:10px; }
   ::-webkit-scrollbar-track{ background:transparent; }
   ::-webkit-scrollbar-thumb{ background:#3a4152; border-radius:6px; }
+
+  /* ---------- Trees panel ---------- */
+  #treesPanel{
+    position:fixed;
+    top:58px;
+    right:16px;
+    width:300px;
+    max-height:70vh;
+    background:#20242c;
+    border:1px solid var(--panel-border);
+    border-radius:12px;
+    box-shadow:0 12px 40px rgba(0,0,0,.5);
+    z-index:50;
+    display:none;
+    flex-direction:column;
+  }
+  #treesPanel.open{ display:flex; }
+  .side-overlay-header{
+    display:flex; align-items:center; justify-content:space-between;
+    padding:14px 16px 10px;
+  }
+  .side-overlay-header h4{
+    margin:0; font-size:12px; text-transform:uppercase; letter-spacing:1px;
+    color:var(--muted); font-family:var(--font-mono);
+  }
+  #newTreeBtn{ margin:0 16px 10px; width:calc(100% - 32px); }
+  #treesList{ overflow-y:auto; padding:0 16px 16px; flex:1; }
+  .tree-item{
+    background:#262b35; border:1px solid var(--panel-border); border-radius:9px;
+    padding:9px 10px; margin-bottom:8px;
+  }
+  .tree-item.active{ border-color:var(--accent); }
+  .tree-item-top{ display:flex; align-items:center; gap:6px; }
+  .tree-item-title{
+    flex:1; font-size:13px; font-weight:600; cursor:pointer; overflow:hidden;
+    text-overflow:ellipsis; white-space:nowrap;
+  }
+  .tree-item-meta{
+    font-family:var(--font-mono); font-size:9.5px; color:var(--muted); margin-top:4px;
+  }
+  .tree-empty{ color:var(--muted); font-size:12.5px; padding:8px 0; }
+
+  /* ---------- Play mode overlay ---------- */
+  #playOverlay{
+    position:fixed; inset:0; background:rgba(10,11,15,.92);
+    z-index:100; display:none; flex-direction:column; align-items:center;
+  }
+  #playOverlay.open{ display:flex; }
+  .play-topbar{
+    width:100%; display:flex; align-items:center; gap:10px;
+    padding:14px 20px; box-sizing:border-box;
+  }
+  .play-topbar .spacer{ flex:1; }
+  #playBreadcrumb{
+    font-family:var(--font-mono); font-size:11.5px; color:var(--muted);
+    max-width:60%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+  }
+  #playBody{
+    flex:1; width:100%; max-width:640px; display:flex; flex-direction:column;
+    align-items:center; justify-content:center; padding:20px; box-sizing:border-box;
+    text-align:center; gap:22px;
+  }
+  .play-question{
+    font-size:26px; font-weight:700; color:var(--node-text); line-height:1.3;
+  }
+  .play-choices{
+    display:flex; flex-direction:column; gap:10px; width:100%; max-width:420px;
+  }
+  .play-choice{
+    padding:14px 18px !important; font-size:15px !important; justify-content:center;
+  }
+  .play-end{
+    font-family:var(--font-mono); font-size:13px; color:var(--line-color);
+    text-transform:uppercase; letter-spacing:.5px;
+  }
 </style>
 </head>
 <body>
@@ -326,11 +401,18 @@
   <input id="titleInput" type="text" value="Untitled Decision Tree" spellcheck="false">
   <div class="tb-sep"></div>
   <span class="tb-meta" id="treeMeta">3 rows</span>
+  <span class="tb-meta" id="saveStatus">Saved</span>
   <div class="spacer"></div>
   <button class="btn ghost small" id="addLayerBtn">+ Add row</button>
   <button class="btn ghost small danger" id="delLayerBtn">− Remove last row</button>
   <div class="tb-sep"></div>
+  <button class="btn" id="treesBtn">📁 Trees</button>
+  <button class="btn" id="playBtn">▶ Play</button>
+  <div class="tb-sep"></div>
   <button class="btn" id="settingsBtn">🎨 Style</button>
+  <button class="btn small" id="jsonExportBtn">JSON ⬇</button>
+  <button class="btn small" id="jsonImportBtn">JSON ⬆</button>
+  <input type="file" id="jsonFileInput" accept="application/json" style="display:none">
   <button class="btn primary" id="exportBtn">⬇ Export</button>
 </header>
 
@@ -370,6 +452,26 @@
   <button class="btn" id="closeSettings">Done</button>
 </div>
 
+<div id="treesPanel">
+  <div class="side-overlay-header">
+    <h4>Saved trees</h4>
+    <button class="btn small ghost" id="closeTreesPanel">✕</button>
+  </div>
+  <button class="btn add-node-btn" id="newTreeBtn">+ New tree</button>
+  <div id="treesList"></div>
+</div>
+
+<div id="playOverlay">
+  <div class="play-topbar">
+    <button class="btn small" id="playBackBtn">← Back</button>
+    <div class="spacer"></div>
+    <div id="playBreadcrumb"></div>
+    <div class="spacer"></div>
+    <button class="btn small danger" id="playCloseBtn">✕ Exit play mode</button>
+  </div>
+  <div id="playBody"></div>
+</div>
+
 <script>
 (function(){
   "use strict";
@@ -403,9 +505,200 @@
         {id:e, label:'Add to roadmap', children:[]} ]
     ];
   }
-  seedTree();
 
   let activeLayer = 0;
+
+  /* ============ PERSISTENCE (localStorage) ============ */
+  const STORAGE_TREES_KEY = 'aline.trees.v1';
+  const STORAGE_ACTIVE_KEY = 'aline.activeTreeId.v1';
+  let activeTreeId = null;
+  let saveTimer = null;
+
+  function loadTreesMap(){
+    try{ return JSON.parse(localStorage.getItem(STORAGE_TREES_KEY)) || {}; }
+    catch(e){ return {}; }
+  }
+  function saveTreesMap(map){
+    try{ localStorage.setItem(STORAGE_TREES_KEY, JSON.stringify(map)); }
+    catch(e){ /* storage unavailable/full — editing still works, just won't persist */ }
+  }
+  function newTreeId(){
+    return 't' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+  }
+  function computeMaxIdCounter(layers){
+    let max = 0;
+    layers.forEach(layer => layer.forEach(n=>{
+      const m = /^n(\d+)$/.exec(n.id);
+      if(m) max = Math.max(max, parseInt(m[1], 10) + 1);
+    }));
+    return max;
+  }
+
+  function scheduleAutosave(){
+    const status = document.getElementById('saveStatus');
+    if(status) status.textContent = 'Saving…';
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(persistActiveTree, 400);
+  }
+
+  function persistActiveTree(){
+    if(!activeTreeId) return;
+    const map = loadTreesMap();
+    map[activeTreeId] = {
+      id: activeTreeId,
+      title: state.title,
+      updatedAt: Date.now(),
+      data: { title: state.title, colors: state.colors, layers: state.layers, idCounter }
+    };
+    saveTreesMap(map);
+    localStorage.setItem(STORAGE_ACTIVE_KEY, activeTreeId);
+    const status = document.getElementById('saveStatus');
+    if(status) status.textContent = 'Saved';
+  }
+
+  function createNewTree(seed){
+    activeTreeId = newTreeId();
+    idCounter = 0;
+    if(seed){
+      state.title = 'Untitled Decision Tree';
+      seedTree();
+    } else {
+      state.title = 'Untitled Decision Tree';
+      state.layers = [[{id:newId(), label:'Start here', children:[]}]];
+    }
+    activeLayer = 0;
+    titleInput.value = state.title;
+    applyColors();
+    initSettingsInputs();
+    renderAll();
+    persistActiveTree();
+    renderTreesList();
+  }
+
+  function loadTree(id){
+    const map = loadTreesMap();
+    const rec = map[id];
+    if(!rec) return;
+    activeTreeId = id;
+    state.title = rec.data.title;
+    state.colors = Object.assign({}, state.colors, rec.data.colors);
+    state.layers = rec.data.layers;
+    idCounter = rec.data.idCounter != null ? rec.data.idCounter : computeMaxIdCounter(rec.data.layers);
+    activeLayer = 0;
+    titleInput.value = state.title;
+    applyColors();
+    initSettingsInputs();
+    renderAll();
+    localStorage.setItem(STORAGE_ACTIVE_KEY, activeTreeId);
+    renderTreesList();
+  }
+
+  function deleteTree(id){
+    const map = loadTreesMap();
+    delete map[id];
+    saveTreesMap(map);
+    if(id === activeTreeId){
+      const remaining = Object.keys(map);
+      if(remaining.length) loadTree(remaining[0]);
+      else createNewTree(true);
+    } else {
+      renderTreesList();
+    }
+  }
+
+  function renameTree(id){
+    const map = loadTreesMap();
+    const rec = map[id];
+    if(!rec) return;
+    const name = prompt('Rename tree', rec.title);
+    if(name === null) return;
+    rec.title = name.trim() || rec.title;
+    rec.updatedAt = Date.now();
+    if(id === activeTreeId){
+      state.title = rec.title;
+      rec.data.title = rec.title;
+      titleInput.value = state.title;
+      renderSvg();
+    }
+    map[id] = rec;
+    saveTreesMap(map);
+    renderTreesList();
+  }
+
+  function relativeTime(ts){
+    const s = Math.max(1, Math.round((Date.now() - ts) / 1000));
+    if(s < 60) return `${s}s ago`;
+    const m = Math.round(s / 60);
+    if(m < 60) return `${m}m ago`;
+    const h = Math.round(m / 60);
+    if(h < 24) return `${h}h ago`;
+    return `${Math.round(h / 24)}d ago`;
+  }
+
+  function renderTreesList(){
+    const list = document.getElementById('treesList');
+    if(!list) return;
+    const map = loadTreesMap();
+    const entries = Object.values(map).sort((a, b) => b.updatedAt - a.updatedAt);
+    list.innerHTML = '';
+    if(!entries.length){
+      list.innerHTML = '<div class="tree-empty">No saved trees yet.</div>';
+      return;
+    }
+    entries.forEach(rec=>{
+      const item = document.createElement('div');
+      item.className = 'tree-item' + (rec.id === activeTreeId ? ' active' : '');
+
+      const top = document.createElement('div');
+      top.className = 'tree-item-top';
+
+      const title = document.createElement('div');
+      title.className = 'tree-item-title';
+      title.textContent = rec.title || 'Untitled';
+      title.title = 'Click to open';
+      title.addEventListener('click', ()=> loadTree(rec.id));
+
+      const renameBtn = document.createElement('button');
+      renameBtn.className = 'btn small ghost';
+      renameBtn.textContent = '✎';
+      renameBtn.title = 'Rename';
+      renameBtn.addEventListener('click', ()=> renameTree(rec.id));
+
+      const delBtn = document.createElement('button');
+      delBtn.className = 'btn small danger';
+      delBtn.textContent = '✕';
+      delBtn.title = 'Delete';
+      delBtn.addEventListener('click', ()=>{
+        if(confirm(`Delete "${rec.title || 'Untitled'}"? This cannot be undone.`)) deleteTree(rec.id);
+      });
+
+      top.appendChild(title);
+      top.appendChild(renameBtn);
+      top.appendChild(delBtn);
+
+      const meta = document.createElement('div');
+      meta.className = 'tree-item-meta';
+      const rows = (rec.data.layers || []).length;
+      meta.textContent = `${rows} row${rows !== 1 ? 's' : ''} · updated ${relativeTime(rec.updatedAt)}`;
+
+      item.appendChild(top);
+      item.appendChild(meta);
+      list.appendChild(item);
+    });
+  }
+
+  document.getElementById('treesBtn').addEventListener('click', ()=>{
+    renderTreesList();
+    document.getElementById('treesPanel').classList.toggle('open');
+  });
+  document.getElementById('closeTreesPanel').addEventListener('click', ()=>{
+    document.getElementById('treesPanel').classList.remove('open');
+  });
+  document.getElementById('newTreeBtn').addEventListener('click', ()=>{
+    if(confirm('Start a new, empty tree? Your current tree stays saved and reachable from this list.')){
+      createNewTree(false);
+    }
+  });
 
   /* ============ COLOR / STYLE SYNC ============ */
   const root = document.documentElement.style;
@@ -441,11 +734,13 @@
       state.colors[settingsMap[inputId]] = e.target.value;
       applyColors();
       renderSvg();
+      scheduleAutosave();
     });
   });
   document.getElementById('c-node-radius').addEventListener('input', e=>{
     state.colors.nodeRadius = +e.target.value;
     renderSvg();
+    scheduleAutosave();
   });
 
   document.getElementById('settingsBtn').addEventListener('click', ()=>{
@@ -458,7 +753,10 @@
   /* ============ TITLE ============ */
   const titleInput = document.getElementById('titleInput');
   titleInput.value = state.title;
-  titleInput.addEventListener('input', e=>{ state.title = e.target.value || 'Untitled Decision Tree'; });
+  titleInput.addEventListener('input', e=>{
+    state.title = e.target.value || 'Untitled Decision Tree';
+    scheduleAutosave();
+  });
 
   /* ============ LAYER STRUCTURE OPS ============ */
   document.getElementById('addLayerBtn').addEventListener('click', ()=>{
@@ -500,6 +798,7 @@
     const node = state.layers[layerIndex].find(n=>n.id===nodeId);
     if(node) node.label = text;
     renderSvg();
+    scheduleAutosave();
   }
   function toggleConnection(layerIndex, nodeId, childId, checked){
     const node = state.layers[layerIndex].find(n=>n.id===nodeId);
@@ -510,6 +809,7 @@
       node.children = node.children.filter(c=>c!==childId);
     }
     renderSvg();
+    scheduleAutosave();
   }
 
   /* ============ NAVIGATION ============ */
@@ -721,9 +1021,159 @@
   function renderAll(){
     renderEditor();
     renderSvg();
+    if(activeTreeId) scheduleAutosave();
   }
 
-  /* ============ EXPORT ============ */
+  /* ============ PLAY MODE ============ */
+  let playPath = [];
+  let playFloor = 0; // minimum path length reachable via Back (1 when a single root was auto-entered)
+
+  function findNodeById(id){
+    for(const layer of state.layers){
+      const found = layer.find(n=>n.id===id);
+      if(found) return found;
+    }
+    return null;
+  }
+
+  function renderPlay(){
+    const body = document.getElementById('playBody');
+    const breadcrumb = document.getElementById('playBreadcrumb');
+    const backBtn = document.getElementById('playBackBtn');
+    body.innerHTML = '';
+
+    if(!playPath.length){
+      breadcrumb.textContent = state.title || 'Untitled Decision Tree';
+      backBtn.disabled = true;
+
+      const q = document.createElement('div');
+      q.className = 'play-question';
+      q.textContent = state.title || 'Untitled Decision Tree';
+      body.appendChild(q);
+
+      const roots = state.layers[0] || [];
+      const choices = document.createElement('div');
+      choices.className = 'play-choices';
+      roots.forEach(n=>{
+        const b = document.createElement('button');
+        b.className = 'btn primary play-choice';
+        b.textContent = n.label || 'Untitled';
+        b.addEventListener('click', ()=>{ playPath = [n.id]; renderPlay(); });
+        choices.appendChild(b);
+      });
+      body.appendChild(choices);
+      return;
+    }
+
+    backBtn.disabled = playPath.length <= playFloor;
+    breadcrumb.textContent = playPath.map(id => (findNodeById(id)?.label || 'Untitled')).join(' → ');
+
+    const node = findNodeById(playPath[playPath.length - 1]);
+    const q = document.createElement('div');
+    q.className = 'play-question';
+    q.textContent = node ? (node.label || 'Untitled') : 'This node no longer exists.';
+    body.appendChild(q);
+
+    const children = node ? node.children.map(cid => findNodeById(cid)).filter(Boolean) : [];
+    if(children.length){
+      const choices = document.createElement('div');
+      choices.className = 'play-choices';
+      children.forEach(c=>{
+        const b = document.createElement('button');
+        b.className = 'btn primary play-choice';
+        b.textContent = c.label || 'Untitled';
+        b.addEventListener('click', ()=>{ playPath.push(c.id); renderPlay(); });
+        choices.appendChild(b);
+      });
+      body.appendChild(choices);
+    } else {
+      const end = document.createElement('div');
+      end.className = 'play-end';
+      end.textContent = 'End of path';
+      body.appendChild(end);
+
+      const restart = document.createElement('button');
+      restart.className = 'btn';
+      restart.textContent = '↺ Restart from top';
+      restart.addEventListener('click', ()=>{
+        const roots = state.layers[0] || [];
+        playPath = playFloor === 1 && roots.length === 1 ? [roots[0].id] : [];
+        renderPlay();
+      });
+      body.appendChild(restart);
+    }
+  }
+
+  document.getElementById('playBtn').addEventListener('click', ()=>{
+    const roots = state.layers[0] || [];
+    // Skip the "pick a starting point" screen when there's only one root —
+    // it's not a real choice, just an extra click.
+    if(roots.length === 1){
+      playPath = [roots[0].id];
+      playFloor = 1;
+    } else {
+      playPath = [];
+      playFloor = 0;
+    }
+    renderPlay();
+    document.getElementById('playOverlay').classList.add('open');
+  });
+  document.getElementById('playCloseBtn').addEventListener('click', ()=>{
+    document.getElementById('playOverlay').classList.remove('open');
+  });
+  document.getElementById('playBackBtn').addEventListener('click', ()=>{
+    if(playPath.length > playFloor){ playPath.pop(); renderPlay(); }
+  });
+
+  /* ============ JSON EXPORT / IMPORT ============ */
+  document.getElementById('jsonExportBtn').addEventListener('click', ()=>{
+    const payload = { title: state.title, colors: state.colors, layers: state.layers, idCounter };
+    const blob = new Blob([JSON.stringify(payload, null, 2)], {type:'application/json'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    const filename = (state.title || 'decision-tree').trim().replace(/[^a-z0-9\-_]+/gi,'-').toLowerCase() || 'decision-tree';
+    a.href = url;
+    a.download = filename + '.json';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  });
+
+  const jsonFileInput = document.getElementById('jsonFileInput');
+  document.getElementById('jsonImportBtn').addEventListener('click', ()=> jsonFileInput.click());
+  jsonFileInput.addEventListener('change', ()=>{
+    const file = jsonFileInput.files[0];
+    if(!file) return;
+    const reader = new FileReader();
+    reader.onload = ()=>{
+      let parsed;
+      try{ parsed = JSON.parse(reader.result); }
+      catch(e){ alert('That file is not valid JSON.'); jsonFileInput.value = ''; return; }
+      if(!parsed || !Array.isArray(parsed.layers)){
+        alert('That file does not look like an Aline tree export (missing "layers").');
+        jsonFileInput.value = '';
+        return;
+      }
+      // Imports as a new saved tree rather than overwriting the current one in place.
+      activeTreeId = newTreeId();
+      state.title = parsed.title || 'Imported Decision Tree';
+      state.colors = Object.assign({}, state.colors, parsed.colors || {});
+      state.layers = parsed.layers;
+      idCounter = parsed.idCounter != null ? parsed.idCounter : computeMaxIdCounter(parsed.layers);
+      activeLayer = 0;
+      titleInput.value = state.title;
+      applyColors();
+      initSettingsInputs();
+      renderAll();
+      persistActiveTree();
+      renderTreesList();
+      jsonFileInput.value = '';
+    };
+    reader.readAsText(file);
+  });
+
+  /* ============ EXPORT (standalone HTML) ============ */
   document.getElementById('exportBtn').addEventListener('click', ()=>{
     const {svgWidth, svgHeight, markup} = buildSvgMarkup();
 
@@ -777,9 +1227,21 @@
   });
 
   /* ============ INIT ============ */
-  applyColors();
-  initSettingsInputs();
-  renderAll();
+  (function initApp(){
+    const savedActiveId = localStorage.getItem(STORAGE_ACTIVE_KEY);
+    const map = loadTreesMap();
+    if(savedActiveId && map[savedActiveId]){
+      loadTree(savedActiveId);
+      return;
+    }
+    const ids = Object.keys(map);
+    if(ids.length){
+      ids.sort((a, b) => map[b].updatedAt - map[a].updatedAt);
+      loadTree(ids[0]);
+      return;
+    }
+    createNewTree(true); // first-ever run: seed with the example tree
+  })();
 
 })();
 </script>
